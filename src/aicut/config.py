@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-flash"
 
 _API_KEY_VARS = ("AICUT_LLM_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY")
 

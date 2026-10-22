@@ -7,6 +7,9 @@ from aicut import config
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch, tmp_path: Path):
+    import os
+
+    snapshot = dict(os.environ)
     for var in ("AICUT_LLM_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY",
                 "AICUT_LLM_BASE_URL", "AICUT_LLM_MODEL"):
         monkeypatch.delenv(var, raising=False)
@@ -15,6 +18,10 @@ def _clean_env(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(config, "_dotenv_candidates", lambda: [tmp_path / ".env"])
     monkeypatch.setattr(config, "_env_loaded", False, raising=False)
     yield
+    # load_env 直接写 os.environ，monkeypatch 感知不到，必须手动还原
+    os.environ.clear()
+    os.environ.update(snapshot)
+    config._env_loaded = False
 
 
 def test_load_env_reads_dotenv_without_overriding(tmp_path: Path, monkeypatch):
@@ -35,7 +42,7 @@ def test_resolve_uses_defaults(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-1234")
     settings = config.resolve()
     assert settings.base_url == "https://api.deepseek.com/v1"
-    assert settings.model == "deepseek-chat"
+    assert settings.model == "deepseek-flash"
     assert settings.api_key == "sk-test-1234"
 
 
