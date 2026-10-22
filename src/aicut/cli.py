@@ -318,6 +318,16 @@ def _cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_web(_args: argparse.Namespace) -> int:
+    """启动本地网页界面。"""
+    import subprocess as sp
+
+    app = Path(__file__).with_name("webui.py")
+    return sp.call(
+        [sys.executable, "-m", "streamlit", "run", str(app), "--server.headless=false"]
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aicut", description=f"AI 辅助剪辑工具 v{__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -404,6 +414,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("config", help="查看 LLM 配置（密钥以掩码显示）")
     p.set_defaults(func=_cmd_config)
+
+    p = sub.add_parser("web", help="启动本地网页界面（上传视频、预览成片）")
+    p.set_defaults(func=_cmd_web)
 
     p = sub.add_parser("demo", help="生成测试素材并跑通全链路")
     p.add_argument("-o", "--output", default="out/demo.mp4")
