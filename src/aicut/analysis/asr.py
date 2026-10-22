@@ -73,6 +73,9 @@ def transcribe(
 
     initial_prompt 让模型倾向输出简体中文：仅指定 language="zh" 时，
     Whisper 常默认输出繁体。
+
+    若素材只有背景音乐、无人声，vad_filter 会把全部音频判为静音并返回空列表，
+    这是正常行为；调用方应准备兜底方案（见 highlights.uniform_candidates）。
     """
     try:
         from faster_whisper import WhisperModel  # type: ignore

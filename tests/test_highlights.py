@@ -1,3 +1,4 @@
+from aicut.analysis import highlights
 from aicut.analysis.highlights import (
     Candidate,
     build_candidates,
@@ -53,6 +54,33 @@ def test_select_returns_best_and_sorted_by_time():
     picked = select(_transcript(lines), target=20, max_duration=40, top=2)
     assert 1 <= len(picked) <= 2
     assert all(picked[i].start <= picked[i + 1].start for i in range(len(picked) - 1))
+
+
+def test_uniform_candidates_covers_timeline():
+    cands = highlights.uniform_candidates(75.0, target=30.0, top=1)
+    assert len(cands) == 1
+    assert cands[0].start == 0.0
+    assert cands[0].end == 30.0
+    assert cands[0].text == ""
+
+
+def test_uniform_candidates_respects_duration():
+    cands = highlights.uniform_candidates(20.0, target=30.0, top=1)
+    assert len(cands) == 1
+    assert cands[0].end == 20.0
+
+
+def test_uniform_candidates_multiple_segments_do_not_overlap():
+    cands = highlights.uniform_candidates(300.0, target=20.0, top=3)
+    assert len(cands) == 3
+    for a, b in zip(cands, cands[1:]):
+        assert a.end <= b.start
+    assert all(19 <= c.duration <= 21 for c in cands)
+
+
+def test_uniform_candidates_handles_too_short():
+    assert highlights.uniform_candidates(2.0, target=30.0) == []
+    assert highlights.uniform_candidates(0.0) == []
 
 
 def test_empty_transcript_yields_no_candidates():

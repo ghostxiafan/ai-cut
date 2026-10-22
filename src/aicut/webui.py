@@ -66,12 +66,22 @@ st.caption("上传视频 → 自动转写、选段、出字幕、出片、生成
 with st.sidebar:
     st.header("参数")
     target = st.slider("目标成片时长（秒）", 10, 90, 30, step=5)
-    aspect = st.selectbox("画布", ["竖屏 1080×1920", "横屏 1920×1080", "方形 1080×1080"], index=0)
+    aspect = st.selectbox(
+        "画布",
+        ["跟随素材（推荐）", "竖屏 1080×1920", "横屏 1920×1080", "方形 1080×1080"],
+        index=0,
+        help="跟随素材可避免横屏视频被压成竖屏后出现大片黑边",
+    )
     model_size = st.selectbox(
         "转写模型",
         ["medium", "small", "tiny", "base"],
         index=0,
         help="medium 中文最准但较慢；tiny 最快但错字多",
+    )
+    use_vad = st.checkbox(
+        "过滤静音段（VAD）",
+        value=True,
+        help="纯音乐或环境音素材检测不到人声时，可取消勾选再试",
     )
     top_n = st.number_input("选取片段数", 1, 5, 1, help="多段会按时间顺序拼接")
     presets = st.selectbox("导出质量", ["ultrafast（最快）", "veryfast", "medium（体积小）"], index=0)
@@ -122,10 +132,16 @@ if st.button("开始自动剪辑", type="primary", use_container_width=True):
             if info.has_audio:
                 wav = extract_audio(video_path, OUT / "audio.wav")
                 st.write(f"已抽取音频 {wav.name}")
-                segs = transcribe(wav, model_size=model_size)
+                segs = transcribe(wav, model_size=model_size, vad_filter=use_vad)
                 transcript = Transcript(segments=segs, source=str(video_path))
+                st.write(f"识别到 {len(segs)} 段语音")
+                if not segs:
+                    st.warning(
+                        "没有检测到清晰人声（常见于纯音乐、环境音、现场噪声大或伴奏为主的素材）。"
+                        "将改用「按时间均分」的方式出片；如需字幕，请用下方的文案模式或取消勾选 VAD 重试。"
+                    )
             else:
-                st.warning("视频没有音轨，已跳转字幕，请在下一次运行时改用文案模式")
+                st.warning("视频没有音轨，已跳过转写")
                 transcript = Transcript()
             status.update(label="1/5 转写完成", state="complete")
 
@@ -134,15 +150,37 @@ if st.button("开始自动剪辑", type="primary", use_container_width=True):
                 transcript, target=float(target), max_duration=float(target) * 2, top=int(top_n)
             )
             if not candidates:
-                st.error("没有找到合适片段：视频可能过短或没有语音。")
-                st.stop()
+                candidates = highlights.uniform_candidates(
+                    info.duration, target=float(target), top=int(top_n)
+                )
+                st.info("未找到可用语义片段，已按时间均分取材。")
+            if not candidates:
+                status.update(label="2/5 选段失败", state="error")
+                st.error("视频时长不足 3 秒，无法剪辑。")
+                fatal = True
+            else:
+                fatal = False
             for i, c in enumerate(candidates, 1):
                 st.write(f"**#{i}** {c.start:.1f}s → {c.end:.1f}s ｜ 得分 {c.score:.1f}")
-                st.caption(c.text[:90] + ("…" if len(c.text) > 90 else ""))
-            status.update(label="2/5 选段完成", state="complete")
+                if c.text:
+                    st.caption(c.text[:90] + ("…" if len(c.text) > 90 else ""))
+            if not fatal:
+                status.update(label="2/5 选段完成", state="complete")
+
+        if fatal:
+            st.stop()
 
         with st.status("3/5 生成时间线…", expanded=True) as status:
-            w, h = (1080, 1920) if "竖屏" in aspect else (1920, 1080) if "横屏" in aspect else (1080, 1080)
+            if aspect.startswith("跟随"):
+                w, h = info.width, info.height
+                # 奇数尺寸会让 libx264 的 yuv420p 编码失败，统一取偶数
+                w, h = w - (w % 2), h - (h % 2)
+            elif "竖屏" in aspect:
+                w, h = 1080, 1920
+            elif "横屏" in aspect:
+                w, h = 1920, 1080
+            else:
+                w, h = 1080, 1080
             timeline = build_timeline(
                 video_path,
                 transcript,
@@ -150,7 +188,7 @@ if st.button("开始自动剪辑", type="primary", use_container_width=True):
                 PlanOptions(width=w, height=h, fps=30, subtitles=True),
             )
             tl_path = save_timeline(timeline, OUT / "timeline.json")
-            st.write(f"时间线已保存：{tl_path.name}（{len(timeline.text)} 条字幕）")
+            st.write(f"画布 {w}×{h}，时间线已保存：{tl_path.name}（{len(timeline.text)} 条字幕）")
             status.update(label="3/5 时间线完成", state="complete")
 
         with st.status("4/5 渲染成片…", expanded=True) as status:
@@ -163,24 +201,28 @@ if st.button("开始自动剪辑", type="primary", use_container_width=True):
         if want_copy:
             with st.status("5/5 生成文案…", expanded=True) as status:
                 text = "\n".join(c.text for c in candidates) or transcript.plain_text()
-                try:
-                    if int(copy_n) > 1:
-                        scored = generate_candidates(
-                            text, topic=topic, platform=platform, count=int(copy_n)
-                        )
-                        copy_payload = {
-                            "best": best(scored).to_dict(),
-                            "candidates": [s.to_dict() for s in scored],
-                        }
-                    else:
-                        copy_payload = generate(text, topic=topic, platform=platform).to_dict()
-                    (OUT / "copy.json").write_text(
-                        json.dumps(copy_payload, ensure_ascii=False, indent=2), encoding="utf-8"
-                    )
-                    status.update(label="5/5 文案完成", state="complete")
-                except Exception as exc:
-                    st.warning(f"文案生成失败：{exc}")
+                if not text.strip():
+                    st.info("没有转写文本，跳过文案生成。")
                     status.update(label="5/5 文案跳过", state="complete")
+                else:
+                    try:
+                        if int(copy_n) > 1:
+                            scored = generate_candidates(
+                                text, topic=topic, platform=platform, count=int(copy_n)
+                            )
+                            copy_payload = {
+                                "best": best(scored).to_dict(),
+                                "candidates": [s.to_dict() for s in scored],
+                            }
+                        else:
+                            copy_payload = generate(text, topic=topic, platform=platform).to_dict()
+                        (OUT / "copy.json").write_text(
+                            json.dumps(copy_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+                        )
+                        status.update(label="5/5 文案完成", state="complete")
+                    except Exception as exc:
+                        st.warning(f"文案生成失败：{exc}")
+                        status.update(label="5/5 文案失败", state="error")
 
         st.session_state["result"] = {
             "dir": str(OUT),

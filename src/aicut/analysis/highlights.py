@@ -190,6 +190,35 @@ def select(
     )
 
 
+def uniform_candidates(duration: float, *, target: float = 30.0, top: int = 1) -> list[Candidate]:
+    """没有可用转写时的兜底：把时间轴等分成若干段。
+
+    用于纯音乐/无人声素材，保证仍能出片，而不是直接失败。
+    """
+    if duration <= 0:
+        return []
+    span = max(3.0, min(float(target), duration))
+    count = max(1, min(top, int(duration // span) or 1))
+    step = (duration - span) / (count - 1) if count > 1 else 0.0
+
+    out: list[Candidate] = []
+    for i in range(count):
+        start = round(i * step, 3)
+        end = round(min(duration, start + span), 3)
+        if end - start < 3.0:
+            break
+        out.append(
+            Candidate(
+                start=start,
+                end=end,
+                text="",
+                score=50.0,
+                reasons={"兜底": 50.0},
+            )
+        )
+    return out
+
+
 def subtitle_cues_for(candidate: Candidate, transcript: Transcript) -> list[TranscriptSegment]:
     """取候选窗口内的转写片段，时间平移到候选起点，供字幕使用。"""
     return transcript.slice(candidate.start, candidate.end)

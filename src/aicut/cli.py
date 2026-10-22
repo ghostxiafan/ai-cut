@@ -53,9 +53,21 @@ def _load_or_build_transcript(args: argparse.Namespace, media: str | None = None
     work = Path(args.workdir)
     wav = extract_audio(media, work / "audio_16k.wav")
     print(f"已抽音频: {wav}，开始转写（模型 {args.model}）…")
-    segments = transcribe(wav, model_size=args.model, language=args.lang)
+    segments = transcribe(
+        wav,
+        model_size=args.model,
+        language=args.lang,
+        vad_filter=not getattr(args, "no_vad", False),
+    )
     transcript = Transcript(segments=segments, language=args.lang, source=str(media))
-    print(f"转写完成：{len(transcript)} 段，{transcript.duration:.1f}s")
+    if not segments:
+        print(
+            "提示: 未检测到清晰人声（可能是纯音乐或噪声较大）。"
+            "可加 --no-vad 重试，或改用 --text 提供文案。",
+            file=sys.stderr,
+        )
+    else:
+        print(f"转写完成：{len(transcript)} 段，{transcript.duration:.1f}s")
     return transcript
 
 
@@ -114,7 +126,13 @@ def _cmd_autoplan(args: argparse.Namespace) -> int:
         top=args.top,
     )
     if not candidates:
-        print("未找到合适片段，请调整 --target / --max-duration 或提供更长素材。", file=sys.stderr)
+        candidates = highlights.uniform_candidates(
+            info.duration, target=args.target, top=args.top
+        )
+        if candidates:
+            print("提示: 未检测到可用人声，已按时间均分取材。", file=sys.stderr)
+    if not candidates:
+        print("视频时长过短（不足 3 秒），无法剪辑。", file=sys.stderr)
         return 1
 
     if args.llm_rank:
@@ -368,6 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top", type=int, default=1)
     p.add_argument("--model", default="medium")
     p.add_argument("--lang", default="zh")
+    p.add_argument("--no-vad", action="store_true", help="不过滤静音段（纯音乐/噪声素材可试）")
     p.add_argument("--workdir", default="out/work")
     p.add_argument("--width", type=int, default=1080)
     p.add_argument("--height", type=int, default=1920)
