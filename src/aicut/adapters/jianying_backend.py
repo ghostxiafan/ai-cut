@@ -1,9 +1,10 @@
 """剪映草稿后端（预留）。
 
-现状（本机实测 2026-10-22）：
-- 剪映专业版 7.1.0.12416，草稿根目录 D:\\JianyingPro Drafts
-- draft_content.json / draft_meta_info.json 均为 Base64 密文，解码后无 JSON 结构
-- 因此无法用 pyJianYingDraft 之流的明文草稿生成方案
+现状（实测剪映专业版 7.x）：
+- 草稿目录下的 draft_content.json / draft_meta_info.json 均为加密内容，
+  解码后无 JSON 结构，无法用 pyJianYingDraft 之流的明文草稿方案。
+- 草稿根目录可能被用户改到其他盘，实际路径记录在 root_meta_info.json 中，
+  本模块会据此自动解析。
 
 可用的解锁条件（任一满足即可启用本后端）：
 1. 升级到剪映 11.5+，配合 jy-draftc 调用 videoeditor.dll 完成加解密与无头导出；
@@ -11,6 +12,8 @@
 
 启用时只需实现 render()：把 Timeline 转成剪映草稿目录（或明文 JSON），
 再可选调用 jy-draftc 解密/回写/导出。上层代码无需改动。
+
+如需指定草稿目录，可设置环境变量 AICUT_JIANYING_DRAFT_ROOT。
 """
 
 from __future__ import annotations
@@ -22,10 +25,17 @@ from pathlib import Path
 from ..ir import Timeline
 from .base import BackendError
 
-DRAFT_ROOT_HINTS = (
-    Path(os.path.expandvars(r"%LOCALAPPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft")),
-    Path(r"D:\JianyingPro Drafts"),
-)
+
+def _draft_root_hints() -> tuple[Path, ...]:
+    """默认草稿目录 + 可选的用户覆盖，不硬编码任何人的具体路径。"""
+    hints: list[Path] = []
+    override = os.environ.get("AICUT_JIANYING_DRAFT_ROOT")
+    if override:
+        hints.append(Path(override))
+    hints.append(
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft"))
+    )
+    return tuple(hints)
 
 
 def _root_from_meta(hint: Path) -> Path | None:
@@ -82,8 +92,14 @@ class JianyingBackend:
 
     def _resolve_root(self) -> Path | None:
         if self.draft_root is not None:
-            return self.draft_root if self.draft_root.exists() else None
-        for hint in DRAFT_ROOT_HINTS:
+            if not self.draft_root.exists():
+                return None
+            # 显式指定时同样支持"入口目录"：真实路径可能记在 root_meta_info.json 里
+            real = _root_from_meta(self.draft_root)
+            if real and real.exists():
+                return real
+            return self.draft_root
+        for hint in _draft_root_hints():
             if not hint.exists():
                 continue
             real = _root_from_meta(hint)

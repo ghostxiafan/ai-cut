@@ -107,7 +107,7 @@ def _post(url: str, payload: dict, api_key: str, timeout: int = 180) -> dict:
         raise LLMError(f"模型接口返回 {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
-        # 系统代理（如 127.0.0.1:7890）没开时会一直连不上，自动改直连重试一次
+        # 系统代理（本地端口未启动）会导致连接被拒，自动改直连重试一次
         if _looks_like_proxy_failure(reason):
             direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             try:
