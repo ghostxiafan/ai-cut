@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+
+# 渲染产物
+out/
+*.ass
+*.srt
+
+# 第三方参考仓库按需保留，不纳入本项目版本管理
+vendor/
