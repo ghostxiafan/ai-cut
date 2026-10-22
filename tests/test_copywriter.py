@@ -19,12 +19,15 @@ from aicut.copywriter.engine import (
 
 GOOD = {
     "hook": "剪一条视频40分钟？",
-    "title": "AI自动剪辑：6分钟出片",
+    "cover_text": "40→6分钟",
     "oral_script": "开头。中间。结尾。",
     "chapters": ["痛点", "对比"],
-    "hashtags": ["#剪辑", "#AI"],
-    "cover_text": "40→6分钟",
-    "comment_bait": "你剪一条要多久？",
+    "platforms": {
+        "抖音": {"title": "6分钟剪完一条片", "body": "别再手剪了。", "hashtags": ["AI剪辑", "#剪辑"]},
+        "小红书": {"title": "剪片效率翻倍", "body": "姐妹们，这个流程真的省时间", "hashtags": ["#剪辑"]},
+        "视频号": {"title": "剪辑效率提升", "body": "分享一个实用流程", "hashtags": ["#剪辑"]},
+        "B站": {"title": "我把剪辑流程自动化了，40分钟变6分钟", "body": "简介正文", "hashtags": ["#剪辑"]},
+    },
 }
 
 
@@ -73,17 +76,25 @@ def test_strip_code_fence_variants():
 
 
 def test_parse_maps_all_fields():
-    result = _parse(json.dumps(GOOD, ensure_ascii=False))
+    result = _parse(json.dumps(GOOD, ensure_ascii=False), ["抖音", "小红书"])
     assert result.hook == GOOD["hook"]
-    assert result.hashtags == GOOD["hashtags"]
-    assert result.to_dict()["cover_text"] == "40→6分钟"
+    assert result.cover_text == GOOD["cover_text"]
+    douyin = result.platform("抖音")
+    assert douyin is not None
+    assert douyin.title == "6分钟剪完一条片"
+    assert douyin.body == "别再手剪了。"
+    assert douyin.hashtags == ["#AI剪辑", "#剪辑"]
+    assert result.to_dict()["publish"][1]["platform"] == "小红书"
 
 
 def test_parse_handles_missing_keys():
-    result = _parse('{"hook":"只有钩子"}')
+    result = _parse('{"hook":"只有钩子"}', ["抖音"])
     assert result.hook == "只有钩子"
-    assert result.title == ""
-    assert result.hashtags == []
+    assert result.cover_text == ""
+    douyin = result.platform("抖音")
+    assert douyin is not None
+    assert douyin.title == ""
+    assert douyin.note == "该平台未产出，请重试或减少平台数量"
 
 
 def test_parse_normalizes_hashtags():
@@ -91,12 +102,62 @@ def test_parse_normalizes_hashtags():
         json.dumps(
             {
                 "hook": "h",
-                "hashtags": ["AI剪辑", "#AI剪辑", " 短视频 剪辑 ", "", "剪辑效率"],
+                "platforms": {
+                    "抖音": {
+                        "title": "t",
+                        "body": "b",
+                        "hashtags": ["AI剪辑", "#AI剪辑", " 短视频 剪辑 ", "", "剪辑效率"],
+                    }
+                },
             },
             ensure_ascii=False,
-        )
+        ),
+        ["抖音"],
     )
-    assert result.hashtags == ["#AI剪辑", "#短视频剪辑", "#剪辑效率"]
+    assert result.platform("抖音").hashtags == ["#AI剪辑", "#短视频剪辑", "#剪辑效率"]
+
+
+def test_platform_limits_are_enforced():
+    result = _parse(
+        json.dumps(
+            {
+                "hook": "h",
+                "platforms": {
+                    "视频号": {
+                        "title": "一" * 40,  # 上限 16
+                        "body": "正" * 1200,  # 上限 1000
+                        "hashtags": [f"#t{i}" for i in range(10)],  # 上限 3
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        ["视频号"],
+    )
+    vh = result.platform("视频号")
+    assert len(vh.title) == 16
+    assert len(vh.body) == 1000
+    assert len(vh.hashtags) == 3
+    assert "标题已截断至 16 字" in vh.note
+    assert "正文已截断至 1000 字" in vh.note
+
+
+def test_platform_array_format_supported():
+    payload = json.dumps(
+        {
+            "hook": "h",
+            "platforms": [{"platform": "B站", "title": "标题", "body": "简介", "hashtags": ["#a"]}],
+        },
+        ensure_ascii=False,
+    )
+    result = _parse(payload, ["B站"])
+    assert result.platform("B站").title == "标题"
+
+
+def test_unknown_platform_falls_back_to_douyin_spec():
+    from aicut.copywriter.platforms import spec_for
+
+    assert spec_for("知乎").title_max == spec_for("抖音").title_max
 
 
 def test_extract_json_list_ignores_surrounding_text():

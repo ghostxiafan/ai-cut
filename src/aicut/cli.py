@@ -178,19 +178,59 @@ def _cmd_autoplan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_platforms(raw: str | None) -> list[str]:
+    from .copywriter.platforms import normalize_platforms
+
+    if not raw:
+        return normalize_platforms(None)
+    return normalize_platforms([p.strip() for p in str(raw).replace("，", ",").split(",") if p.strip()])
+
+
+def _print_copy(payload: dict, *, title: str) -> None:
+    """按「视频内文案」与「各平台发布文案」分区打印，方便直接复制。"""
+    inner = payload.get("in_video", {})
+    if inner:
+        print(f"\n{title}")
+        print("【视频内文案】")
+        if inner.get("hook"):
+            print(f"  开场大字: {inner['hook']}")
+        if inner.get("cover_text"):
+            print(f"  封面大字: {inner['cover_text']}")
+        if inner.get("oral_script"):
+            print(f"  口播稿  : {inner['oral_script']}")
+        if inner.get("chapters"):
+            print(f"  小节    : {' / '.join(inner['chapters'])}")
+
+    publish = payload.get("publish", [])
+    if publish:
+        print("\n【各平台发布文案】")
+        for item in publish:
+            print(f"\n  ── {item['platform']} ──")
+            print(f"  标题({item.get('title_length', len(item.get('title', '')))}字): {item.get('title', '')}")
+            body = item.get("body", "")
+            if body:
+                print(f"  正文: {body}")
+            tags = item.get("hashtags", [])
+            if tags:
+                print(f"  标签: {' '.join(tags)}")
+            if item.get("note"):
+                print(f"  备注: {item['note']}")
+
+
 def _write_copy(transcript, candidates, args: argparse.Namespace) -> None:
     """生成文案并与时间线一起落盘，失败不影响已产出的视频。"""
     from .copywriter.engine import best, generate, generate_candidates
 
     picked = "\n".join(c.text for c in candidates) or transcript.plain_text()
     out = Path(args.copy)
+    platforms = _parse_platforms(getattr(args, "platforms", None))
 
     try:
         if args.copy_candidates > 1:
             scored = generate_candidates(
                 picked,
                 topic=args.topic or "",
-                platform=args.platform,
+                platforms=platforms,
                 count=args.copy_candidates,
                 model=args.model_llm or None,
             )
@@ -200,14 +240,13 @@ def _write_copy(transcript, candidates, args: argparse.Namespace) -> None:
                 "candidates": [s.to_dict() for s in scored],
             }
         else:
-            result = generate(
+            top = None
+            payload = generate(
                 picked,
                 topic=args.topic or "",
-                platform=args.platform,
+                platforms=platforms,
                 model=args.model_llm or None,
-            )
-            top = None
-            payload = result.to_dict()
+            ).to_dict()
     except Exception as exc:  # 文案是增强项，不应阻断出片
         print(f"\n文案生成失败（不影响成片）: {exc}", file=sys.stderr)
         return
@@ -215,15 +254,12 @@ def _write_copy(transcript, candidates, args: argparse.Namespace) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    chosen = top.result if top else payload
-    print(f"\n文案: {out}")
+    print(f"\n文案已保存: {out}")
     if top is not None:
-        print(f"  共 {len(payload['candidates'])} 条候选，最高分 {top.total:.0f}/100")
-    print(f"  开场钩子: {chosen['hook'] if isinstance(chosen, dict) else chosen.hook}")
-    print(f"  标题    : {chosen['title'] if isinstance(chosen, dict) else chosen.title}")
-    print(f"  封面字  : {chosen['cover_text'] if isinstance(chosen, dict) else chosen.cover_text}")
-    tags = chosen["hashtags"] if isinstance(chosen, dict) else chosen.hashtags
-    print(f"  标签    : {' '.join(tags)}")
+        print(f"共 {len(payload['candidates'])} 条候选，最高分 {top.total:.0f}/100")
+        _print_copy(payload["best"], title="最佳方案")
+    else:
+        _print_copy(payload, title="生成结果")
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
@@ -252,28 +288,46 @@ def _cmd_copy(args: argparse.Namespace) -> int:
     from .copywriter.engine import best, generate, generate_candidates
 
     text = Path(args.transcript).read_text(encoding="utf-8", errors="replace") if Path(args.transcript).exists() else args.transcript
+    platforms = _parse_platforms(args.platforms)
+
     if args.candidates > 1:
         scored = generate_candidates(
             text,
             topic=args.topic,
-            platform=args.platform,
+            platforms=platforms,
             count=args.candidates,
             model=args.model,
         )
         _print_scored(scored)
         top = best(scored)
         payload: dict = {"best": top.to_dict(), "candidates": [s.to_dict() for s in scored]}
+        print(f"最高分 {top.total:.0f}/100")
+        _print_copy(payload["best"], title="最佳方案")
         if args.out:
             Path(args.out).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"\n已保存 {len(scored)} 条候选: {args.out}")
         return 0
 
-    result = generate(text, topic=args.topic, platform=args.platform, model=args.model)
-    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    payload = generate(text, topic=args.topic, platforms=platforms, model=args.model).to_dict()
+    _print_copy(payload, title="生成结果")
     if args.out:
-        Path(args.out).write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        Path(args.out).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\n已保存: {args.out}")
     return 0
+
+
+def _print_scored(scored) -> None:
+    print(f"候选 {len(scored)} 条（按总分降序）:\n")
+    for rank, item in enumerate(scored, start=1):
+        dims = " ".join(f"{k[:4]}{v:.0f}" for k, v in item.scores.items())
+        print(f"#{rank}  总分 {item.total:.0f}/100   {dims}")
+        print(f"    钩子: {item.result.hook}")
+        print(f"    封面: {item.result.cover_text}")
+        titles = " ｜ ".join(f"{p.platform}:{p.title}" for p in item.result.platforms)
+        print(f"    标题: {titles}")
+        if item.note:
+            print(f"    点评: {item.note}")
+        print()
 
 
 def _print_scored(scored) -> None:
@@ -404,7 +458,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--copy-candidates", type=int, default=1,
                    help="文案候选条数，>1 时生成多条并自评分")
     p.add_argument("--topic", default="")
-    p.add_argument("--platform", default="抖音")
+    p.add_argument("--platforms", default="抖音,小红书,视频号,B站",
+                   help="逗号分隔，如：抖音,小红书")
     p.add_argument("--crf", type=int, default=20)
     p.add_argument("--preset", default="medium")
     p.set_defaults(func=_cmd_autoplan)
@@ -421,7 +476,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("copy", help="根据转写文本生成文案")
     p.add_argument("transcript", help="转写文本文件路径，或直接给文本")
     p.add_argument("--topic", default="")
-    p.add_argument("--platform", default="抖音")
+    p.add_argument("--platforms", default="抖音,小红书,视频号,B站",
+                   help="逗号分隔，如：抖音,小红书")
     p.add_argument("--model", default=None)
     p.add_argument("-n", "--candidates", type=int, default=1,
                    help="生成多条候选并自评分（>1 时启用）")

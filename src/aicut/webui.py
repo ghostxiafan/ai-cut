@@ -88,10 +88,16 @@ with st.sidebar:
     preset = presets.split("（")[0]
 
     st.divider()
-    want_copy = st.checkbox("生成爆款文案", value=True)
+    want_copy = st.checkbox("生成发布文案", value=True)
     copy_n = st.number_input("文案候选数", 1, 8, 3, disabled=not want_copy)
     topic = st.text_input("视频主题（可选）", placeholder="如：AI自动剪辑")
-    platform = st.selectbox("目标平台", ["抖音", "小红书", "视频号", "B站"], index=0)
+    picked_platforms = st.multiselect(
+        "目标平台",
+        ["抖音", "小红书", "视频号", "B站", "快手"],
+        default=["抖音", "小红书", "视频号", "B站"],
+        disabled=not want_copy,
+        help="每个平台会单独生成标题、正文和标签，字数与风格按各平台规则",
+    )
 
     st.divider()
     st.caption("密钥配置")
@@ -206,16 +212,20 @@ if st.button("开始自动剪辑", type="primary", use_container_width=True):
                     status.update(label="5/5 文案跳过", state="complete")
                 else:
                     try:
+                        platforms = picked_platforms or ["抖音"]
                         if int(copy_n) > 1:
                             scored = generate_candidates(
-                                text, topic=topic, platform=platform, count=int(copy_n)
+                                text,
+                                topic=topic,
+                                platforms=platforms,
+                                count=int(copy_n),
                             )
                             copy_payload = {
                                 "best": best(scored).to_dict(),
                                 "candidates": [s.to_dict() for s in scored],
                             }
                         else:
-                            copy_payload = generate(text, topic=topic, platform=platform).to_dict()
+                            copy_payload = generate(text, topic=topic, platforms=platforms).to_dict()
                         (OUT / "copy.json").write_text(
                             json.dumps(copy_payload, ensure_ascii=False, indent=2), encoding="utf-8"
                         )
@@ -254,28 +264,53 @@ if result:
     with right:
         payload = result.get("copy")
         if payload:
-            st.subheader("爆款文案")
             top = payload.get("best", payload)
             if "total" in top:
                 st.metric("自评分", f"{top['total']:.0f}/100")
-            st.markdown(f"**钩子**：{top.get('hook', '')}")
-            st.markdown(f"**标题**：{top.get('title', '')}")
-            st.markdown(f"**封面字**：{top.get('cover_text', '')}")
-            st.markdown(f"**标签**：{' '.join(top.get('hashtags', []))}")
-            if top.get("comment_bait"):
-                st.markdown(f"**引导评论**：{top['comment_bait']}")
-            if top.get("oral_script"):
+            inner = top.get("in_video", {})
+            publish = top.get("publish", [])
+
+            st.subheader("视频内文案")
+            st.caption("出现在画面或配音里，可直接喂给剪辑")
+            if inner.get("hook"):
+                st.markdown(f"**开场大字**：{inner['hook']}")
+            if inner.get("cover_text"):
+                st.markdown(f"**封面大字**：{inner['cover_text']}")
+            if inner.get("chapters"):
+                st.markdown("**小节**：" + " / ".join(inner["chapters"]))
+            if inner.get("oral_script"):
                 with st.expander("口播稿"):
-                    st.write(top["oral_script"])
+                    st.write(inner["oral_script"])
 
             others = payload.get("candidates", [])
             if len(others) > 1:
                 with st.expander(f"其他 {len(others) - 1} 条候选"):
                     for i, cand in enumerate(others[1:], 2):
+                        inner_c = cand.get("in_video", {})
                         st.markdown(f"**#{i} 总分 {cand.get('total', 0):.0f}**")
-                        st.caption(
-                            f"{cand.get('hook', '')} ｜ {cand.get('title', '')} ｜ {cand.get('note', '')}"
-                        )
+                        st.caption(f"{inner_c.get('hook', '')} ｜ {cand.get('note', '')}")
+
+    if result.get("copy"):
+        top = result["copy"].get("best", result["copy"])
+        publish = top.get("publish", [])
+        if publish:
+            st.subheader("各平台发布文案")
+            st.caption("发布时直接复制到对应平台的标题、正文、标签位置")
+            tabs = st.tabs([p["platform"] for p in publish])
+            for tab, item in zip(tabs, publish):
+                with tab:
+                    title = item.get("title", "")
+                    st.markdown(f"**标题**（{item.get('title_length', len(title))} 字）")
+                    st.code(title or "（未生成）", language=None)
+                    if item.get("body"):
+                        st.markdown("**正文**")
+                        st.code(item["body"], language=None)
+                    tags = item.get("hashtags", [])
+                    if tags:
+                        st.markdown(f"**标签**（{len(tags)} 个）")
+                        st.code(" ".join(tags), language=None)
+                    if item.get("note"):
+                        st.caption(f"备注：{item['note']}")
 
     with st.expander("产物文件"):
         for f in sorted(Path(result["dir"]).iterdir()):
