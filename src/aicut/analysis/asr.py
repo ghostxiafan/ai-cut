@@ -60,7 +60,7 @@ def load_waveform(audio_path: str | Path, sample_rate: int = ASR_SAMPLE_RATE) ->
 
 def transcribe(
     audio_path: str | Path,
-    model_size: str = "small",
+    model_size: str = "medium",
     language: str = "zh",
     *,
     device: str = "auto",
