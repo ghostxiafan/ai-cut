@@ -191,7 +191,7 @@ flowchart TB
 ### 4.2 安装
 
 ```powershell
-cd D:\AI-Cut
+cd <项目目录>
 python -m pip install -e .
 python -m pip install faster-whisper streamlit opencc-python-reimplemented
 copy .env.example .env    # 填入 AICUT_LLM_API_KEY
@@ -202,7 +202,7 @@ copy .env.example .env    # 填入 AICUT_LLM_API_KEY
 密钥只放在 `.env`，已被 `.gitignore` 排除。三条约束：
 
 1. 源码不含任何密钥常量；
-2. `aicut config` 只输出掩码（`sk-...675a`）；
+2. `aicut config` 只输出掩码（如 `sk-...abcd`）；
 3. 报错信息只保留服务端返回内容，不回显请求头。
 
 ### 4.4 命令参考
@@ -276,7 +276,7 @@ aicut copy 转写文本.txt --platforms "抖音,小红书" -n 5 --out copy.json
 | 声音忽大忽小 | `amix` 默认按输入数量衰减 | 加 `normalize=0`，音量完全由片段 `volume` 决定 |
 | 界面卡住转圈 | 错误在 `st.status` 块内 `st.stop()`，状态停在 running | 先置 `state="error"` 再退出，并补无人声兜底 |
 | 横屏被压出黑边 | 强制竖屏画布 | 新增「跟随素材」画布，按源分辨率渲染 |
-| API 连接被拒 | 系统代理 `127.0.0.1:7890` 未启动 | 代理失败自动改直连重试一次 |
+| API 连接被拒 | 系统代理指向未启动的本地端口 | 代理失败自动改直连重试一次 |
 | 文件编码被写坏 | 用 PowerShell 重写含中文的 Python 文件 | 改为工具直接写入，并加入全仓库编码自检 |
 
 ---
@@ -316,7 +316,7 @@ aicut copy 转写文本.txt --platforms "抖音,小红书" -n 5 --out copy.json
 ## 七、目录结构
 
 ```
-D:\AI-Cut
+<项目目录>
 ├─ src/aicut/
 │  ├─ ir.py                 # 时间线中间表示
 │  ├─ plan.py               # 剪辑计划（选段 → 时间线）

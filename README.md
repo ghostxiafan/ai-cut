@@ -10,7 +10,7 @@
 
 ```powershell
 # 1. 安装
-cd D:\AI-Cut
+cd <项目目录>
 python -m pip install -e .
 python -m pip install faster-whisper streamlit opencc-python-reimplemented
 
@@ -122,7 +122,7 @@ aicut autoplan 视频.mp4 -t 现成字幕.srt --render out.mp4
 
 - 密钥只存在 `.env`，已在 `.gitignore` 中排除，不会进 Git
 - 源码无任何硬编码密钥
-- `aicut config` 只显示 `sk-...675a` 这样的掩码
+- `aicut config` 只显示 `sk-...abcd` 这样的掩码
 
 ---
 
