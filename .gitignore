@@ -7,6 +7,11 @@ build/
 dist/
 .pytest_cache/
 
+# 密钥：绝不能提交
+.env
+.env.*
+!.env.example
+
 # 渲染产物
 out/
 *.ass

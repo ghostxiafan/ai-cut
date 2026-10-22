@@ -154,7 +154,37 @@ def _cmd_autoplan(args: argparse.Namespace) -> int:
         result = render(timeline, args.render, crf=args.crf, preset=args.preset)
         size_mb = Path(result.output).stat().st_size / 1024 / 1024
         print(f"\n成片: {result.output}  ({result.duration:.2f}s, {size_mb:.1f} MB)")
+
+    if args.copy:
+        _write_copy(transcript, candidates, args)
     return 0
+
+
+def _write_copy(transcript, candidates, args: argparse.Namespace) -> None:
+    """生成文案并与时间线一起落盘，失败不影响已产出的视频。"""
+    from .copywriter.engine import generate
+
+    picked = "\n".join(c.text for c in candidates) or transcript.plain_text()
+    try:
+        result = generate(
+            picked,
+            topic=args.topic or "",
+            platform=args.platform,
+            model=args.model_llm or None,
+        )
+    except Exception as exc:  # 文案是增强项，不应阻断出片
+        print(f"\n文案生成失败（不影响成片）: {exc}", file=sys.stderr)
+        return
+
+    payload = result.to_dict()
+    out = Path(args.copy)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n文案: {out}")
+    print(f"  开场钩子: {payload['hook']}")
+    print(f"  标题    : {payload['title']}")
+    print(f"  封面字  : {payload['cover_text']}")
+    print(f"  标签    : {' '.join(payload['hashtags'])}")
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
@@ -187,6 +217,32 @@ def _cmd_copy(args: argparse.Namespace) -> int:
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     if args.out:
         Path(args.out).write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n已保存: {args.out}")
+    return 0
+
+
+def _cmd_config(_args: argparse.Namespace) -> int:
+    """只显示掩码后的密钥，避免任何形式的明文回显。"""
+    from .config import ConfigError, resolve
+
+    try:
+        settings = resolve()
+    except ConfigError as exc:
+        print(f"未配置: {exc}", file=sys.stderr)
+        print("提示：复制 .env.example 为 .env 并填入 AICUT_LLM_API_KEY", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "api_key": settings.masked_key,
+                "base_url": settings.base_url,
+                "model": settings.model,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -264,6 +320,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bgm-volume", type=float, default=0.12)
     p.add_argument("--llm-rank", action="store_true", help="用 LLM 复排候选（需 API Key）")
     p.add_argument("--model-llm", default=None)
+    p.add_argument("--copy", nargs="?", const="out/copy.json", default=None,
+                   help="生成爆款文案并保存（可指定路径，默认 out/copy.json）")
+    p.add_argument("--topic", default="")
+    p.add_argument("--platform", default="抖音")
     p.add_argument("--crf", type=int, default=20)
     p.add_argument("--preset", default="medium")
     p.set_defaults(func=_cmd_autoplan)
@@ -287,6 +347,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("backend", help="查看出片后端可用性")
     p.set_defaults(func=_cmd_backend)
+
+    p = sub.add_parser("config", help="查看 LLM 配置（密钥以掩码显示）")
+    p.set_defaults(func=_cmd_config)
 
     p = sub.add_parser("demo", help="生成测试素材并跑通全链路")
     p.add_argument("-o", "--output", default="out/demo.mp4")

@@ -28,5 +28,6 @@
   "python.analysis.extraPaths": ["./src"],
 
   "editor.rulers": [100],
-  "files.encoding": "utf8"
+  "files.encoding": "utf8",
+  "python.terminal.useEnvFile": true
 }

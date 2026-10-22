@@ -1,16 +1,17 @@
 """文案引擎：根据转写文本生成钩子、标题、口播稿与标签。
 
 只依赖标准库（urllib），兼容任意 OpenAI 兼容的 /chat/completions 接口，
-因此 DeepSeek / Qwen / 本地 vLLM 都能直接用。
+因此 DeepSeek / Qwen / 本地 vLLM 都能直接用。密钥由 config.resolve 统一解析。
 """
 
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+
+from ..config import ConfigError, resolve
 
 SYSTEM_PROMPT = """你是短视频爆款文案编导。基于给出的视频转写内容，产出中文文案。
 要求：
@@ -57,10 +58,11 @@ class LLMError(RuntimeError):
 
 
 def _post(url: str, payload: dict, api_key: str, timeout: int = 180) -> dict:
+    headers = {"Content-Type": "application/json", "Authorization": " ".join(("Bearer", api_key))}
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -106,26 +108,29 @@ def generate(
     model: str | None = None,
     temperature: float = 0.8,
 ) -> CopyResult:
-    api_key = api_key or os.environ.get("AICUT_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    base_url = (base_url or os.environ.get("AICUT_LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-    model = model or os.environ.get("AICUT_LLM_MODEL") or "gpt-4o-mini"
-    if not api_key:
-        raise LLMError("缺少 API Key：设置环境变量 AICUT_LLM_API_KEY 或传入 api_key")
+    settings = resolve(api_key, base_url, model)
 
     payload = {
-        "model": model,
+        "model": settings.model,
         "temperature": temperature,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": USER_TEMPLATE.format(topic=topic or "未指定", platform=platform, transcript=transcript[:12000]),
+                "content": USER_TEMPLATE.format(
+                    topic=topic or "未指定",
+                    platform=platform,
+                    transcript=transcript[:12000],
+                ),
             },
         ],
     }
-    data = _post(f"{base_url}/chat/completions", payload, api_key)
+    data = _post(f"{settings.base_url}/chat/completions", payload, settings.api_key)
     try:
         raw = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:
         raise LLMError(f"响应结构异常: {json.dumps(data)[:400]}") from exc
     return _parse(raw)
+
+
+__all__ = ["CopyResult", "ConfigError", "LLMError", "generate"]
