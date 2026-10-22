@@ -22,6 +22,11 @@
     "out": true
   },
 
+  // 让 README.md / PROJECT.md 显示在资源管理器顶部：
+  // 文件排在文件夹之前，且大写字母优先，MD 文档会靠前
+  "explorer.sortOrder": "filesFirst",
+  "explorer.sortOrderLexicographicOptions": "upper",
+
   // Python 测试与路径，保证测试面板可直接点击运行
   "python.testing.pytestEnabled": true,
   "python.testing.pytestArgs": ["tests"],
