@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+# HuggingFace 在 Windows 无开发者模式下会打印符号链接缓存告警，与功能无关
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from . import __version__
 from .adapters.ffmpeg_backend import FFmpegBackend

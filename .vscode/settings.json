@@ -1,0 +1,32 @@
+{
+  // 让"改了哪些文件"在左侧一眼可见
+  "git.decorations.enabled": true,
+  "explorer.decorations.badges": true,
+  "explorer.decorations.colors": true,
+  "scm.diffDecorations": "all",
+  "scm.diffDecorationsGutterWidth": 3,
+
+  // 提交时自动把改动加入暂存，减少来回操作
+  "git.enableSmartCommit": true,
+  "git.confirmSync": false,
+  "git.autofetch": false,
+
+  // 隐藏不关心的目录，突出源码与改动
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/*.egg-info": true
+  },
+  "search.exclude": {
+    "vendor": true,
+    "out": true
+  },
+
+  // Python 测试与路径，保证测试面板可直接点击运行
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "python.analysis.extraPaths": ["./src"],
+
+  "editor.rulers": [100],
+  "files.encoding": "utf8"
+}
